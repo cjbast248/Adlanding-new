@@ -114,10 +114,11 @@ class TeethPositionPredictor:
     # ─── Gap Detection ──────────────────────────────────────────────────────
     def _detect_arch_gaps(self, jaw_mesh):
         """
-        Returns list of (position_3d, tooth_type_str) for every gap found.
-        Tooth type is inferred from angular position along the dental arch.
+        Template-based gap detection: places 16 expected tooth positions on
+        the dental arch and checks point density at each one.
+        Returns list of (position_3d, tooth_type_str) for every missing tooth.
         """
-        pcd    = jaw_mesh.sample_points_uniformly(number_of_points=25000)
+        pcd    = jaw_mesh.sample_points_uniformly(number_of_points=30000)
         points = np.asarray(pcd.points)
 
         bbox  = jaw_mesh.get_axis_aligned_bounding_box()
@@ -125,14 +126,14 @@ class TeethPositionPredictor:
         max_b = bbox.max_bound
         z_h   = max_b[2] - min_b[2]
 
-        # 1. Filter to alveolar process region (Z: 35–90% of total jaw height)
+        # 1. Filter to alveolar process (35–90% of jaw height)
         z_min = min_b[2] + z_h * 0.35
         z_max = min_b[2] + z_h * 0.90
         alv   = points[(points[:, 2] >= z_min) & (points[:, 2] <= z_max)]
-        if len(alv) < 300:
+        if len(alv) < 200:
             return []
 
-        # 2. Polar projection around arch centroid
+        # 2. Project to XY, find arch centroid and radius
         xy          = alv[:, :2]
         arch_center = np.median(xy, axis=0)
         dx = xy[:, 0] - arch_center[0]
@@ -140,63 +141,83 @@ class TeethPositionPredictor:
         angles = np.arctan2(dy, dx)
         radii  = np.sqrt(dx**2 + dy**2)
 
-        # 3. Find the "front" direction of the arch (highest point density near center)
-        #    The front of the U-arch has maximum point density at medium radii
-        n_bins       = 24
-        angle_min, angle_max = np.percentile(angles, 3), np.percentile(angles, 97)
-        bins         = np.linspace(angle_min, angle_max, n_bins + 1)
-        bin_counts   = np.zeros(n_bins)
-        bin_pos3d    = [None] * n_bins
-        bin_mid_ang  = np.zeros(n_bins)
+        # 3. Find the arch "front" direction (smallest radius sector = front of U)
+        n_scan = 36
+        scan_bins = np.linspace(np.percentile(angles, 2), np.percentile(angles, 98), n_scan + 1)
+        bin_r_mean = np.full(n_scan, np.inf)
+        bin_cnt    = np.zeros(n_scan)
+        for i in range(n_scan):
+            m = (angles >= scan_bins[i]) & (angles < scan_bins[i+1])
+            if np.sum(m) > 0:
+                bin_r_mean[i] = np.mean(radii[m])
+                bin_cnt[i]    = np.sum(m)
 
-        for i in range(n_bins):
-            m   = (angles >= bins[i]) & (angles < bins[i+1])
-            cnt = np.sum(m)
-            bin_counts[i]  = cnt
-            bin_mid_ang[i] = (bins[i] + bins[i+1]) / 2
-            if cnt > 0:
-                sec = alv[m]
-                r_s = radii[m]
-                outer = sec[r_s >= np.percentile(r_s, 60)]
-                bin_pos3d[i] = np.mean(outer if len(outer) > 0 else sec, axis=0)
+        front_bin  = int(np.argmin(bin_r_mean))
+        front_ang  = (scan_bins[front_bin] + scan_bins[front_bin + 1]) / 2
+        arch_radius = np.median(radii)
+        alv_z_mean  = np.mean(alv[:, 2])
 
-        if np.max(bin_counts) == 0:
-            return []
+        # 4. Standard dental arch template (half-arch angles from front, mirrored)
+        # Each tuple: (offset_deg_from_front, tooth_type, side)  — covers full arch
+        ARCH_TEMPLATE = [
+            # Incisors (front)
+            (5,  "incisor", +1), (5,  "incisor", -1),
+            (15, "incisor", +1), (15, "incisor", -1),
+            # Canines
+            (28, "canine",  +1), (28, "canine",  -1),
+            # Premolars
+            (42, "premolar", +1), (42, "premolar", -1),
+            (55, "premolar", +1), (55, "premolar", -1),
+            # Molars
+            (68, "molar", +1), (68, "molar", -1),
+            (82, "molar", +1), (82, "molar", -1),
+            (94, "molar", +1), (94, "molar", -1),
+        ]
 
-        # Front = bin with smallest mean radius (inner curve of U)
-        mean_radii_per_bin = np.array([
-            np.mean(radii[(angles >= bins[i]) & (angles < bins[i+1])])
-            if bin_counts[i] > 0 else np.inf
-            for i in range(n_bins)
-        ])
-        front_bin  = int(np.argmin(mean_radii_per_bin))
-        front_ang  = bin_mid_ang[front_bin]  # The angle pointing to the front of the arch
+        # 5. For each template position, check if a tooth is PRESENT
+        window_deg = 7.0  # ±7° window around each expected tooth
+        window_rad = np.radians(window_deg)
 
-        # 4. Identify gaps
-        median_cnt  = np.median(bin_counts[bin_counts > 0])
-        gap_thr     = median_cnt * 0.40
-        results     = []
+        # Compute "expected" point count if a tooth is present
+        # Use the DENSEST sector as reference for "tooth present"
+        dense_count = np.percentile(bin_cnt[bin_cnt > 0], 75)
+        # A tooth is "missing" if density < 45% of what a present tooth would give
+        presence_threshold = dense_count * 0.45
 
-        for i in range(1, n_bins - 1):
-            left  = bin_counts[max(0, i-1)]
-            here  = bin_counts[i]
-            right = bin_counts[min(n_bins-1, i+1)]
-            if here < gap_thr and left > median_cnt * 0.5 and right > median_cnt * 0.5:
-                lp = bin_pos3d[i-1]
-                rp = bin_pos3d[i+1]
-                if lp is not None and rp is not None:
-                    gap_pos = (lp + rp) / 2.0
-                elif bin_pos3d[i] is not None:
-                    gap_pos = bin_pos3d[i]
-                else:
-                    continue
+        results = []
+        for (offset_deg, tooth_kind, side) in ARCH_TEMPLATE:
+            # Target angle for this tooth position
+            offset_rad = np.radians(offset_deg) * side
+            target_ang = front_ang + offset_rad
 
-                # Angular distance from the arch front → determines tooth type
-                delta_deg = abs(np.degrees(bin_mid_ang[i] - front_ang)) % 180
-                tooth_kind = self._classify_tooth(delta_deg)
-                results.append((gap_pos, tooth_kind))
+            # Count points in this window
+            ang_diff = np.abs(((angles - target_ang + np.pi) % (2 * np.pi)) - np.pi)
+            mask = ang_diff < window_rad
+            cnt  = np.sum(mask)
+
+            if cnt < presence_threshold:
+                # Tooth is missing! Compute 3D position
+                # Use outer alveolar ridge at this angle
+                sec = alv[mask] if cnt > 5 else None
+
+                # Compute expected 3D coordinates from arch geometry
+                ex = arch_center[0] + arch_radius * np.cos(target_ang)
+                ey = arch_center[1] + arch_radius * np.sin(target_ang)
+                ez = alv_z_mean
+
+                if sec is not None and len(sec) > 0:
+                    # Refine with actual points
+                    r_sec = np.sqrt((sec[:, 0] - arch_center[0])**2 +
+                                    (sec[:, 1] - arch_center[1])**2)
+                    outer = sec[r_sec >= np.percentile(r_sec, 50)]
+                    if len(outer) > 0:
+                        ex, ey = np.mean(outer[:, :2], axis=0)
+                        ez = np.mean(outer[:, 2])
+
+                results.append((np.array([ex, ey, ez]), tooth_kind))
 
         return results
+
 
     def _classify_tooth(self, delta_deg: float) -> str:
         """Map angular offset from arch front to dental tooth type."""
