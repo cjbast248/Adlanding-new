@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Dental AI Predictor - 1-Click VPS Deployment Script
 # Supports Ubuntu 20.04/22.04/24.04 and Debian 11/12.
 # Run this as ROOT!
@@ -19,6 +18,10 @@ PROJECT_DIR="/opt/dental_ai_poc"
 REPO_URL="https://github.com/cjbast248/Adlanding-new.git"
 SUPABASE_TOKEN="sbp_7d73fbd608cb164949347b346335683ff7e0f5fe"
 
+# Stop existing service if it exists
+systemctl stop dental_ai || true
+pkill -f uvicorn || true
+
 echo "[1/6] Updating system and installing dependencies..."
 apt-get update -y
 apt-get install -y libgl1 libglib2.0-0 python3 python3-pip python3-venv git curl ufw
@@ -32,12 +35,12 @@ git clone "$REPO_URL" "$PROJECT_DIR"
 
 cd "$PROJECT_DIR"
 
-# Wait, the repo structure has frontend/ and ml/. Where is server.py?
-# If the user pushed server.py to the root of Adlanding-new, it will run.
-# Otherwise, we warn them.
-if [ ! -f "server.py" ]; then
-    echo "WARNING: server.py not found in the root of the repository!"
-    echo "Please ensure you pushed the entire backend code to GitHub."
+# Ensure static directory exists
+if [ ! -d "static" ]; then
+    mkdir -p static
+    # Move index.html and app.js to static if they are in root
+    [ -f "index.html" ] && mv index.html static/
+    [ -f "app.js" ] && mv app.js static/
 fi
 
 echo "[3/6] Setting up Python Virtual Environment..."
@@ -45,16 +48,12 @@ python3 -m venv venv
 source venv/bin/activate
 
 echo "[4/6] Installing Heavy AI Dependencies (PyTorch CPU, FastAPI, Open3D)..."
-# We force CPU PyTorch to save massive amounts of RAM and disk space on a typical VPS.
 pip install --upgrade pip
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install fastapi uvicorn python-multipart supabase python-dotenv
-# Re-install other potential requirements without relying on full requirements.txt which might fetch GPU torch
-pip install trimesh open3d numpy pydantic
+pip install fastapi uvicorn python-multipart supabase python-dotenv trimesh open3d numpy pydantic
 
 echo "[ML-FIX] Setting up 4GB Swapfile to prevent Out of Memory (OOM) crashes..."
 if [ ! -f /swapfile ]; then
-    # Some VPS kernels don't support fallocate for swap, default to dd
     fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
     chmod 600 /swapfile
     mkswap /swapfile
@@ -89,7 +88,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-pkill -f uvicorn || true`nsystemctl daemon-reload
+systemctl daemon-reload
 systemctl enable dental_ai
 systemctl restart dental_ai
 
@@ -101,7 +100,5 @@ ufw --force enable || true
 echo "=========================================================="
 echo "✅ DEPLOYMENT SUCCESSFUL! ✅"
 echo "=========================================================="
-echo "Your AI Predictor API is now running on Port 80."
-echo "You can test it by going to: http://$(curl -s ifconfig.me)/"
-echo "To view live logs, run: sudo journalctl -u dental_ai -f"
+echo "Your AI Predictor is now running on: http://$(curl -s ifconfig.me)/"
 echo "=========================================================="
