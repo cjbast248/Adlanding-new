@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+open3d
+trimesh
+torch
+numpy
+scipy
+supabase
+python-dotenv
