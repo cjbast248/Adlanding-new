@@ -1,34 +1,55 @@
 // Global Three.js Setup
 const container = document.getElementById('viewer3d');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf1f5f9);
+scene.background = new THREE.Color(0x0a0a0a); // Deep professional black
 
 const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
 camera.position.set(0, -100, 100);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
 container.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-// Lighting for dental models
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(50, 50, 50);
-scene.add(dirLight);
-const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
-backLight.position.set(-50, -50, -50);
-scene.add(backLight);
+// Professional Medical Lighting (Studio Setup)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambientLight);
+
+const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+mainLight.position.set(100, 100, 100);
+scene.add(mainLight);
+
+const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.5); // Subtle blue fill
+fillLight.position.set(-100, 50, 50);
+scene.add(fillLight);
+
+const rimLight = new THREE.PointLight(0xffffff, 0.6);
+rimLight.position.set(0, -100, -50);
+scene.add(rimLight);
 
 // Loaders
 const stlLoader = new THREE.STLLoader();
 const plyLoader = new THREE.PLYLoader();
 
-const jawMaterial = new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.8, metalness: 0.05 }); // Bone-like
-const toothMaterial = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3, metalness: 0.4, transparent: true, opacity: 0.95 }); // Professional AI Overlay
+const jawMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0xeeeeee, 
+    specular: 0x111111, 
+    shininess: 30,
+    flatShading: false
+}); 
+
+const toothMaterial = new THREE.MeshPhongMaterial({ 
+    color: 0x3b82f6, 
+    emissive: 0x1d4ed8,
+    emissiveIntensity: 0.2,
+    transparent: true, 
+    opacity: 0.85,
+    shininess: 100
+});
 
 let currentJawMesh = null;
 let currentPredictedMesh = null;
