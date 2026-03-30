@@ -18,14 +18,14 @@ class TeethPositionPredictor:
         os.makedirs(self.data_dir, exist_ok=True)
         
         # Clinical NIH models urls
-        self.nih_molar_url = "https://3dprint.nih.gov/system/files/3d_model/3DPX-000571/Human_Mandibular_Molar.stl"
-        self.nih_mandible_url = "https://3dprint.nih.gov/system/files/3d_model/3DPX-001002/Human_Mandible.stl"
+        
+        
 
         # Auto-download professional molar for library if missing
         if not os.path.exists(library_model_path):
             print(f"Downloading real clinical molar library from NIH...")
             try:
-                urllib.request.urlretrieve(self.nih_molar_url, library_model_path)
+                pass
             except Exception as e:
                 print(f"Failed to download molar: {e}")
 
