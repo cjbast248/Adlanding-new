@@ -26,8 +26,8 @@ scene.add(backLight);
 // STL Loader
 const loader = new THREE.STLLoader();
 
-const jawMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.6, metalness: 0.1 });
-const toothMaterial = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.4, metalness: 0.2 });
+const jawMaterial = new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.8, metalness: 0.05 }); // Bone-like
+const toothMaterial = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3, metalness: 0.4, transparent: true, opacity: 0.95 }); // Professional AI Overlay
 
 let currentJawMesh = null;
 let currentPredictedMesh = null;
