@@ -33,7 +33,12 @@ if [ -d "$PROJECT_DIR" ]; then
 fi
 git clone "$REPO_URL" "$PROJECT_DIR"
 
-cd "\$PROJECT_DIR"`n`necho "Downloading Professional Clinical Assets from NIH..."`nmkdir -p data`ncurl -L "https://3dprint.nih.gov/system/files/3d_model/3DPX-001002/Human_Mandible.stl" -o data/test_jaw.stl`ncurl -L "https://3dprint.nih.gov/system/files/3d_model/3DPX-000571/Human_Mandibular_Molar.stl" -o data/library_tooth.stl
+cd "$PROJECT_DIR"
+
+echo "Downloading Professional Clinical Assets from NIH..."
+mkdir -p data
+curl -L "https://3dprint.nih.gov/system/files/3d_model/3DPX-001002/Human_Mandible.stl" -o data/test_jaw.stl
+curl -L "https://3dprint.nih.gov/system/files/3d_model/3DPX-000571/Human_Mandibular_Molar.stl" -o data/library_tooth.stl
 
 # Ensure static directory exists
 if [ ! -d "static" ]; then
