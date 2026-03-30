@@ -175,48 +175,45 @@ class TeethPositionPredictor:
         ]
 
         # 5. For each template position, check if a tooth is PRESENT
-        window_deg = 7.0  # ±7° window around each expected tooth
-        window_rad = np.radians(window_deg)
+        window_rad  = np.radians(7.0)   # ±7° window for density check
+        wide_rad    = np.radians(12.0)  # ±12° wider window for position estimation
 
-        # Compute "expected" point count if a tooth is present
-        # Use the DENSEST sector as reference for "tooth present"
-        dense_count = np.percentile(bin_cnt[bin_cnt > 0], 75)
-        # A tooth is "missing" if density < 45% of what a present tooth would give
+        dense_count        = np.percentile(bin_cnt[bin_cnt > 0], 75)
         presence_threshold = dense_count * 0.45
 
         results = []
         for (offset_deg, tooth_kind, side) in ARCH_TEMPLATE:
-            # Target angle for this tooth position
             offset_rad = np.radians(offset_deg) * side
             target_ang = front_ang + offset_rad
 
-            # Count points in this window
-            ang_diff = np.abs(((angles - target_ang + np.pi) % (2 * np.pi)) - np.pi)
-            mask = ang_diff < window_rad
-            cnt  = np.sum(mask)
+            # Count points in narrow window (tooth presence check)
+            ang_diff_all = np.abs(((angles - target_ang + np.pi) % (2 * np.pi)) - np.pi)
+            mask_narrow  = ang_diff_all < window_rad
+            cnt = np.sum(mask_narrow)
 
             if cnt < presence_threshold:
-                # Tooth is missing! Compute 3D position
-                # Use outer alveolar ridge at this angle
-                sec = alv[mask] if cnt > 5 else None
+                # ── Tooth is MISSING ──────────────────────────────────────
+                # Find position from actual jaw surface using wider window
+                mask_wide = ang_diff_all < wide_rad
+                n_wide    = np.sum(mask_wide)
 
-                # Compute expected 3D coordinates from arch geometry
-                ex = arch_center[0] + arch_radius * np.cos(target_ang)
-                ey = arch_center[1] + arch_radius * np.sin(target_ang)
-                ez = alv_z_mean
+                if n_wide >= 5:
+                    sec   = alv[mask_wide]
+                    r_sec = radii[mask_wide]
+                    # Use outermost 40% of points = the alveolar ridge surface
+                    outer = sec[r_sec >= np.percentile(r_sec, 60)]
+                    pos3d = np.mean(outer if len(outer) > 0 else sec, axis=0)
+                else:
+                    # No nearby points at all — skip this position
+                    # (avoids floating teeth in ramus / empty air)
+                    continue
 
-                if sec is not None and len(sec) > 0:
-                    # Refine with actual points
-                    r_sec = np.sqrt((sec[:, 0] - arch_center[0])**2 +
-                                    (sec[:, 1] - arch_center[1])**2)
-                    outer = sec[r_sec >= np.percentile(r_sec, 50)]
-                    if len(outer) > 0:
-                        ex, ey = np.mean(outer[:, :2], axis=0)
-                        ez = np.mean(outer[:, 2])
-
-                results.append((np.array([ex, ey, ez]), tooth_kind))
+                # Safety: clamp Z to the valid alveolar range
+                pos3d[2] = np.clip(pos3d[2], z_min, z_max)
+                results.append((pos3d.copy(), tooth_kind))
 
         return results
+
 
 
     def _classify_tooth(self, delta_deg: float) -> str:
