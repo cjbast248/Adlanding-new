@@ -26,33 +26,32 @@ class TeethPositionPredictor:
             print("Procedurally generating an ANATOMICAL molar crown on-the-fly...")
             try:
                 import trimesh
-                # CLINICAL TOOTH ORIENTATION: Crown at top (Y+), roots at bottom (Y-)
-                # Base = occlusal body of the crown (wider than tall)
-                crown_body = trimesh.creation.box(extents=(10.0, 5.0, 8.0))  # X=mesio-distal, Y=height, Z=buccal-lingual
-                crown_body.apply_translation([0.0, 2.5, 0.0])  # Lift body to sit above zero
+                # MEDICAL Z-UP CONVENTION: Z = vertical axis (up), matching PLY jaw files
+                # Crown body: wide in XY plane, height (small) in Z
+                crown_body = trimesh.creation.box(extents=(10.0, 8.0, 5.0))  # X=mesio-distal, Y=buccal-lingual, Z=crown height
+                crown_body.apply_translation([0.0, 0.0, 2.5])  # Lift crown above zero in Z
 
-                # 4 anatomical cusps on top of the crown body (occlusal surface)
+                # 4 anatomical cusps on the occlusal surface (at Z+)
                 cusps = []
                 for cx in [-2.5, 2.5]:
-                    for cz in [-2.0, 2.0]:
+                    for cy in [-2.0, 2.0]:
                         cusp = trimesh.creation.icosphere(radius=2.8, subdivisions=2)
-                        cusp.apply_scale([1.0, 0.6, 1.0])  # Flatten on Y (occlusal cusp)
-                        cusp.apply_translation([cx, 6.0, cz])
+                        cusp.apply_scale([1.0, 1.0, 0.6])  # Flatten on Z (low cusp profile)
+                        cusp.apply_translation([cx, cy, 6.5])  # Place on top of crown in Z+
                         cusps.append(cusp)
 
-                # 2 root stubs pointing downward (Y-)
+                # 2 root stubs pointing into bone (Z-)
                 for rx in [-2.5, 2.5]:
-                    root = trimesh.creation.cone(radius=2.2, height=6.0)
-                    root.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1,0,0]))  # Flip down
-                    root.apply_translation([rx, -1.5, 0.0])
+                    root = trimesh.creation.cone(radius=2.0, height=7.0)
+                    root.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1,0,0]))  # Flip tip to Z-
+                    root.apply_translation([rx, 0.0, -2.5])  # Roots below crown in Z-
                     cusps.append(root)
 
-                # Combine crown + roots
                 molar = trimesh.util.concatenate([crown_body] + cusps)
                 molar.export(library_model_path)
-                print(f"Anatomical molar saved to {library_model_path}")
+                print(f"Z-up anatomical molar saved: {library_model_path}")
             except Exception as e:
-                print(f"Failed to generate molar: {e}")
+                print(f"Molar generation failed: {e}")
 
         # Load the newly trained ML weights from Colab if they exist
         checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoints", "pointnet_final.pth")
