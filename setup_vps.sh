@@ -52,7 +52,18 @@ pip install fastapi uvicorn python-multipart supabase python-dotenv
 # Re-install other potential requirements without relying on full requirements.txt which might fetch GPU torch
 pip install trimesh open3d numpy pydantic
 
-$swapCode
+echo "[ML-FIX] Setting up 4GB Swapfile to prevent Out of Memory (OOM) crashes..."
+if [ ! -f /swapfile ]; then
+    # Some VPS kernels don't support fallocate for swap, default to dd
+    fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile || true
+    grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    echo "Swapfile created successfully!"
+else
+    echo "Swapfile already exists."
+fi
 
 echo "[5/6] Creating Configuration Files..."
 cat <<EOF > .env
@@ -80,7 +91,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable dental_ai
-systemctl start dental_ai
+systemctl restart dental_ai
 
 echo "Configuring firewall (allowing port 80)..."
 ufw allow 80/tcp || true
