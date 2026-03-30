@@ -13,10 +13,11 @@ except ImportError:
 #   TOOTH TYPE DEFINITIONS (Z-up medical coords)
 # ─────────────────────────────────────────────
 TOOTH_TYPES = {
-    "incisor":  {"arch_angle_deg": (0,  20),  "mesio_distal": 7.0,  "buccal_lingual": 7.5, "crown_h": 5.5, "cusps": 1, "cusp_r": 2.5},
-    "canine":   {"arch_angle_deg": (20, 38),  "mesio_distal": 8.0,  "buccal_lingual": 8.0, "crown_h": 7.0, "cusps": 1, "cusp_r": 3.0},
-    "premolar": {"arch_angle_deg": (38, 58),  "mesio_distal": 9.0,  "buccal_lingual": 9.0, "crown_h": 6.0, "cusps": 2, "cusp_r": 2.8},
-    "molar":    {"arch_angle_deg": (58, 100), "mesio_distal": 12.0, "buccal_lingual": 11.0,"crown_h": 5.5, "cusps": 4, "cusp_r": 2.8},
+    #             (min°, max°)  MD    BL   Ht  cusps  r
+    "incisor":  {"arch_angle_deg": (0,  18),  "mesio_distal": 7.0,  "buccal_lingual": 7.5, "crown_h": 5.5, "cusps": 1, "cusp_r": 2.5},
+    "canine":   {"arch_angle_deg": (18, 34),  "mesio_distal": 8.0,  "buccal_lingual": 8.0, "crown_h": 7.0, "cusps": 1, "cusp_r": 3.0},
+    "premolar": {"arch_angle_deg": (34, 54),  "mesio_distal": 9.0,  "buccal_lingual": 9.0, "crown_h": 6.0, "cusps": 2, "cusp_r": 2.8},
+    "molar":    {"arch_angle_deg": (54, 110), "mesio_distal": 12.0, "buccal_lingual": 11.0,"crown_h": 5.5, "cusps": 4, "cusp_r": 2.8},
 }
 
 def _build_tooth_mesh(kind: str):
@@ -158,20 +159,21 @@ class TeethPositionPredictor:
         alv_z_mean  = np.mean(alv[:, 2])
 
         # 4. Standard dental arch template (half-arch angles from front, mirrored)
-        # Each tuple: (offset_deg_from_front, tooth_type, side)  — covers full arch
+        # Angles are offsets from the arch front — max 75° to stay within dental body
+        # Each tuple: (offset_deg_from_front, tooth_type, side)
         ARCH_TEMPLATE = [
-            # Incisors (front)
-            (5,  "incisor", +1), (5,  "incisor", -1),
-            (15, "incisor", +1), (15, "incisor", -1),
+            # Central & lateral incisors (front)
+            ( 4,  "incisor",  +1), ( 4,  "incisor",  -1),
+            (13,  "incisor",  +1), (13,  "incisor",  -1),
             # Canines
-            (28, "canine",  +1), (28, "canine",  -1),
-            # Premolars
-            (42, "premolar", +1), (42, "premolar", -1),
-            (55, "premolar", +1), (55, "premolar", -1),
-            # Molars
-            (68, "molar", +1), (68, "molar", -1),
-            (82, "molar", +1), (82, "molar", -1),
-            (94, "molar", +1), (94, "molar", -1),
+            (26,  "canine",   +1), (26,  "canine",   -1),
+            # 1st & 2nd Premolars
+            (40,  "premolar", +1), (40,  "premolar", -1),
+            (52,  "premolar", +1), (52,  "premolar", -1),
+            # 1st, 2nd, 3rd Molars — capped at 75° to stay away from ramus
+            (62,  "molar",    +1), (62,  "molar",    -1),
+            (70,  "molar",    +1), (70,  "molar",    -1),
+            (75,  "molar",    +1), (75,  "molar",    -1),
         ]
 
         # 5. For each template position, check if a tooth is PRESENT
