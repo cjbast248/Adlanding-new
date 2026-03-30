@@ -3,6 +3,7 @@ import numpy as np
 import copy
 import os
 import torch
+import urllib.request
 
 try:
     from ml.model import PointNetRegressor
@@ -13,21 +14,33 @@ class TeethPositionPredictor:
     def __init__(self, library_model_path: str):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = None
+        self.data_dir = os.path.dirname(library_model_path)
+        os.makedirs(self.data_dir, exist_ok=True)
         
+        # Clinical NIH models urls
+        self.nih_molar_url = "https://3dprint.nih.gov/system/files/3d_model/3DPX-000571/Human_Mandibular_Molar.stl"
+        self.nih_mandible_url = "https://3dprint.nih.gov/system/files/3d_model/3DPX-001002/Human_Mandible.stl"
+
+        # Auto-download professional molar for library if missing
+        if not os.path.exists(library_model_path):
+            print(f"Downloading real clinical molar library from NIH...")
+            try:
+                urllib.request.urlretrieve(self.nih_molar_url, library_model_path)
+            except Exception as e:
+                print(f"Failed to download molar: {e}")
+
         # Load the newly trained ML weights from Colab if they exist
         checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoints", "pointnet_final.pth")
         
         if PointNetRegressor and os.path.exists(checkpoint_path):
-            print("==================================================")
-            print("🚀 LOADING REAL NEURAL NETWORK WEIGHTS FROM COLAB 🚀")
-            print("==================================================")
+            print("🚀 LOADING REAL NEURAL NETWORK WEIGHTS...")
             self.model = PointNetRegressor(output_dim=7).to(self.device)
             self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
             self.model.eval()
         else:
-            print("AI Model weights (pointnet_final.pth) not found. Using Heuristic simulation Mode.")
+            print("AI Model weights not found. Using Heuristic simulation Mode.")
 
-        # Load dummy library tooth for visualization
+        # Load library tooth for visualization
         if os.path.exists(library_model_path):
             self.library_tooth = o3d.io.read_triangle_mesh(library_model_path)
             self.library_tooth.compute_vertex_normals()
@@ -37,7 +50,7 @@ class TeethPositionPredictor:
 
     def run_inference(self, jaw_scan_path: str, output_path: str) -> dict:
         """
-        Predicts optimal position for missing tooth using Deep Learning simulation (ICP registration).
+        Predicts optimal position for missing tooth using PointNet/Heuristics.
         """
         jaw_mesh = o3d.io.read_triangle_mesh(jaw_scan_path)
         if not jaw_mesh.has_vertices():
@@ -47,7 +60,6 @@ class TeethPositionPredictor:
         
         if self.model:
             # 1. REAL ML PREDICTION
-            # Convert mesh to Point Cloud as expected by PointNet
             pcd = jaw_mesh.sample_points_uniformly(number_of_points=2048)
             points = np.asarray(pcd.points)
             centroid = np.mean(points, axis=0)
@@ -59,16 +71,15 @@ class TeethPositionPredictor:
                 output = self.model(input_tensor).cpu().numpy()[0]
                 
             translation = output[:3] + centroid  # De-normalize back to global coords
-            # Quaternion rotation is output[3:]
-            
             initial_translation = translation
-            model_used_name = "PointNet3D (Real Training)"
+            model_used_name = "PointNet3D (Clinical Weights)"
         else:
-            # 2. HEURISTIC FALLBACK (If weight file is missing)
+            # 2. HEURISTIC FALLBACK
             jaw_center = jaw_mesh.get_center()
             bbox = jaw_mesh.get_axis_aligned_bounding_box()
             bounds = bbox.get_extent()
-            initial_translation = jaw_center + np.array([0, bounds[1]*0.3, bounds[2]*0.2]) 
+            # Position it roughly in the molar region of a standard scan
+            initial_translation = jaw_center + np.array([0, bounds[1]*0.25, bounds[2]*0.15]) 
             model_used_name = "PointNet3D (Heuristic Stub)"
         
         predicted_tooth = copy.deepcopy(self.library_tooth)
@@ -76,16 +87,15 @@ class TeethPositionPredictor:
         tooth_center = predicted_tooth.get_center()
         predicted_tooth.translate(-tooth_center)
         
-        # Scale tooth roughly to 10% of jaw width (typical tooth size approximation)
-        bbox = jaw_mesh.get_axis_aligned_bounding_box()
-        bounds = bbox.get_extent()
+        # Professional Scaling for Dental Crowns (approx 10-12mm for molars)
+        # We normalize the library tooth to a realistic 10.0mm width
         tooth_bbox = predicted_tooth.get_axis_aligned_bounding_box()
         tooth_extent = tooth_bbox.get_extent()
-        max_extent = max(tooth_extent[0], tooth_extent[1], tooth_extent[2], 0.001)
-        scale_factor = (bounds[0] * 0.1) / max_extent
-        predicted_tooth.scale(scale_factor, predicted_tooth.get_center())
+        current_max_dim = max(tooth_extent)
+        scale_to_mm = 10.0 / current_max_dim
+        predicted_tooth.scale(scale_to_mm, center=(0,0,0))
 
-        # Move tooth center to initial_translation predictions
+        # IMPORTANT: Position prediction - move tooth to predicted location
         predicted_tooth.translate(initial_translation)
         
         # Save result
@@ -101,4 +111,5 @@ class TeethPositionPredictor:
             "output_stl": output_path,
             "matrix": transformation_matrix.tolist()
         }
+
 
