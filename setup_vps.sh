@@ -89,7 +89,7 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
+pkill -f uvicorn || true`nsystemctl daemon-reload
 systemctl enable dental_ai
 systemctl restart dental_ai
 

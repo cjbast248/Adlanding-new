@@ -26,24 +26,14 @@ scene.add(backLight);
 // STL Loader
 const loader = new THREE.STLLoader();
 
-const jawMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0xe5e7eb, 
-    roughness: 0.6, 
-    metalness: 0.1 
-});
-
-const toothMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x3b82f6, 
-    roughness: 0.4, 
-    metalness: 0.2,
-    emissive: 0x1d4ed8,
-    emissiveIntensity: 0.2
-});
+const jawMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.6, metalness: 0.1 });
+const toothMaterial = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.4, metalness: 0.2 });
 
 let currentJawMesh = null;
 let currentPredictedMesh = null;
 
 // Handle File Select
+const apiUrlInput = document.getElementById('apiUrl');
 const scanUpload = document.getElementById('scanUpload');
 const predictBtn = document.getElementById('predictBtn');
 const logs = document.getElementById('logs');
@@ -54,7 +44,6 @@ function log(msg) {
     logs.scrollTop = logs.scrollHeight;
 }
 
-// Fit Camera to Object
 function fitCameraToObject(camera, object, offset = 1.5) {
     const boundingBox = new THREE.Box3();
     boundingBox.setFromObject(object);
@@ -63,15 +52,12 @@ function fitCameraToObject(camera, object, offset = 1.5) {
     const size = new THREE.Vector3();
     boundingBox.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
-    const fov = camera.fov * (Math.PI / 180);
-    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-    cameraZ *= offset;
+    let cameraZ = Math.abs(maxDim * offset);
     
     // Set camera position roughly keeping current angles but fitting
     camera.position.set(center.x, center.y - (cameraZ * 0.5), center.z + cameraZ);
     camera.far = cameraZ * 10;
     camera.updateProjectionMatrix();
-    
     controls.target.copy(center);
     controls.update();
 }
@@ -81,31 +67,19 @@ scanUpload.addEventListener('change', (e) => {
     if (selectedFile) {
         predictBtn.disabled = false;
         predictBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        
-        log(`Loaded ${selectedFile.name} (${(selectedFile.size/1024).toFixed(1)} KB)`);
-        
-        // Preview locally
+        log(`Loaded ${selectedFile.name}`);
         const reader = new FileReader();
         reader.onload = function(event) {
             const contents = event.target.result;
             const geometry = loader.parse(contents);
-            
-            // We do NOT center the geometry here! Exocad relies on global coordinates.
-            // Rendering it strictly where it is in 3D space.
-            
             if (currentJawMesh) scene.remove(currentJawMesh);
             if (currentPredictedMesh) scene.remove(currentPredictedMesh);
             currentPredictedMesh = null;
             
             currentJawMesh = new THREE.Mesh(geometry, jawMaterial);
-            
-            // Rotate the mesh to standard up-axis for viewing if necessary, 
-            // but usually raw coordinate view is better for clinical accuracy.
-            currentJawMesh.rotation.x = -Math.PI / 2; // Common adjustment for dental scans
-            
+            currentJawMesh.rotation.x = -Math.PI / 2;
             scene.add(currentJawMesh);
             fitCameraToObject(camera, currentJawMesh);
-            log("Scan visualized in 3D space.");
         };
         reader.readAsArrayBuffer(selectedFile);
     }
@@ -114,50 +88,51 @@ scanUpload.addEventListener('change', (e) => {
 predictBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
     
-    // UI Update
     predictBtn.disabled = true;
     predictBtn.classList.add('opacity-50', 'cursor-not-allowed');
-    document.getElementById('btnText').innerText = "Processing Engine...";
+    document.getElementById('btnText').innerText = "Running PyTorch Model...";
     document.getElementById('loadingSpinner').classList.remove('hidden');
-    log("Initializing Core inference pipeline (PyTorch -> Open3D)...");
+    
+    let apiUrl = apiUrlInput.value.replace(/\/$/, ""); // trim trailing slash
+    log(`Connecting to ML Backend: ${apiUrl}`);
     
     const formData = new FormData();
     formData.append("jaw_scan", selectedFile);
     
     try {
-        log("Uploading Scan. Constructing Point Cloud...");
-        const response = await fetch('/api/predict', {
+        const response = await fetch(`${apiUrl}/api/predict`, {
             method: 'POST',
             body: formData
         });
         
-        const data = await response.json();
+        let data;
+        try {
+            data = await response.json();
+        } catch (je) {
+            throw new Error(`Server returned non-JSON! URL: ${apiUrl}`);
+        }
         
-        if (data.status === "success") {
+        if (data.status === "success" || data.predicted_tooth_url) {
             log(`Inference Complete. Processing output...`);
-            log(`Exporting Transform Matrix for Exocad.`);
+            let toothUrl = `${apiUrl}${data.predicted_tooth_url}`;
+            log(`Downloading STL from ${toothUrl}`);
             
-            // Load predicted tooth
-            loader.load(data.predicted_tooth_url, (geometry) => {
+            loader.load(toothUrl, (geometry) => {
                 if (currentPredictedMesh) scene.remove(currentPredictedMesh);
-                
                 currentPredictedMesh = new THREE.Mesh(geometry, toothMaterial);
-                currentPredictedMesh.rotation.x = -Math.PI / 2; // same adjustment as jaw
-                
+                currentPredictedMesh.rotation.x = -Math.PI / 2;
                 scene.add(currentPredictedMesh);
-                
                 const group = new THREE.Group();
                 group.add(currentJawMesh);
                 group.add(currentPredictedMesh);
-                
                 fitCameraToObject(camera, group);
-                log("Prediction successfully aligned onto input scan.");
+                log("Prediction successfully aligned.");
             });
         } else {
-            log(`Error: ${data.error}`);
+            log(`Error: ${data.error || 'Unknown API failure'}`);
         }
     } catch (err) {
-        log(`API Error: ${err.message}`);
+        log(`API Error: ${err.message}. Make sure the FastAPI python server is running and CORS is enabled.`);
     } finally {
         predictBtn.disabled = false;
         predictBtn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -166,14 +141,6 @@ predictBtn.addEventListener('click', async () => {
     }
 });
 
-// Window resize handler
-window.addEventListener('resize', () => {
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
-});
-
-// Render Loop
 function animate() {
     requestAnimationFrame(animate);
     controls.update();

@@ -29,68 +29,50 @@ else:
 
 app = FastAPI(title="Dental AI Predictor (PoC)")
 
-# Enable CORS for frontend hosted on GitHub Pages
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For production, change to Github Pages URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Moved mount to bottom for route precedence
-
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Initialize AI Predictor (PointNet / Heuristic stub)
+# Initialize AI Predictor
 library_path = os.path.join(DATA_DIR, "library_tooth.stl")
 predictor = TeethPositionPredictor(library_path)
 
-# Replaced root
-
-    
-        
-    
-
 @app.post("/api/predict")
 async def predict_missing_tooth(jaw_scan: UploadFile = File(...)):
-    # Unique ID for tracking
     file_id = str(uuid.uuid4())[:8]
     ext = os.path.splitext(jaw_scan.filename)[1].lower()
     
-    # Save uploaded file locally
     input_filename = f"scan_{file_id}{ext}"
     input_path = os.path.join(DATA_DIR, input_filename)
     with open(input_path, "wb") as buffer:
         shutil.copyfileobj(jaw_scan.file, buffer)
         
-    # Optional: Upload to Supabase Storage before processing
     if supabase_client:
         try:
             with open(input_path, 'rb') as f:
                 supabase_client.storage.from_("scans").upload(file=f, path=input_filename)
         except Exception as e:
-            print(f"Supabase Upload Warning: {e}. Note: Did you create the 'scans' storage bucket?")
+            print(f"Supabase Upload Warning: {e}")
         
-    # Run ML Inference
     output_filename = f"predicted_{file_id}.stl"
     output_path = os.path.join(DATA_DIR, output_filename)
     
     try:
         result = predictor.run_inference(input_path, output_path)
-        
-        # Matrix Export
         export_to_exocad(tooth_id=46, transformation_matrix=result["matrix"], export_dir=DATA_DIR)
         
-        # Upload prediction back to Supabase if Cloud Deployment Mode
         if supabase_client:
             try:
                 with open(output_path, 'rb') as f:
                     supabase_client.storage.from_("predictions").upload(file=f, path=output_filename)
-                
-                # Fetch public URLs if needed
-                # pub_url = supabase_client.storage.from_("predictions").get_public_url(output_filename)
             except Exception as e:
                 print(f"Supabase Prediction Upload Warning: {e}")
         
@@ -111,11 +93,12 @@ async def download_file(filename: str):
         return FileResponse(file_path, media_type="application/octet-stream", filename=filename)
     return JSONResponse(status_code=404, content={"error": "File not found locally."})
 
-# For UI backwards compatibility, serve the SPA frontend from the root
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# Serve the static frontend from the root
+# MUST be the last route to avoid shadowing /api
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    # If running on Render, the port is provided via PORT env var.
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 80))
     uvicorn.run(app, host="0.0.0.0", port=port)
