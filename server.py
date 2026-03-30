@@ -39,7 +39,7 @@ app.add_middleware(
 )
 
 # For UI backwards compatibility, we can still serve the frontend locally
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -48,11 +48,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 library_path = os.path.join(DATA_DIR, "library_tooth.stl")
 predictor = TeethPositionPredictor(library_path)
 
-@app.get("/")
-def serve_frontend():
-    if os.path.exists("static/index.html"):
-        return FileResponse("static/index.html")
-    return JSONResponse(status_code=404, content={"message": "Frontend not found locally. Please use GitHub Pages URL."})
+# Replaced root
+
+    
+        
+    
 
 @app.post("/api/predict")
 async def predict_missing_tooth(jaw_scan: UploadFile = File(...)):
