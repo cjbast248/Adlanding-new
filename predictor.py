@@ -26,20 +26,31 @@ class TeethPositionPredictor:
             print("Procedurally generating an ANATOMICAL molar crown on-the-fly...")
             try:
                 import trimesh
-                # Create a more organic molar shape: rounded box with 4 anatomically positioned cusps
-                base = trimesh.creation.box(extents=(9.0, 7.0, 9.0))
+                # CLINICAL TOOTH ORIENTATION: Crown at top (Y+), roots at bottom (Y-)
+                # Base = occlusal body of the crown (wider than tall)
+                crown_body = trimesh.creation.box(extents=(10.0, 5.0, 8.0))  # X=mesio-distal, Y=height, Z=buccal-lingual
+                crown_body.apply_translation([0.0, 2.5, 0.0])  # Lift body to sit above zero
+
+                # 4 anatomical cusps on top of the crown body (occlusal surface)
                 cusps = []
-                # Positioning 4 rounded cusps (mesio-buccal, disto-buccal, etc.)
-                for cx in [-2.6, 2.6]:
-                    for cz in [-2.6, 2.6]:
-                        cusp = trimesh.creation.icosphere(radius=3.5, subdivisions=2)
-                        cusp.apply_scale([1.0, 0.7, 1.0]) # Slightly flatten for occlusal table
-                        cusp.apply_translation([cx, 3.8, cz])
+                for cx in [-2.5, 2.5]:
+                    for cz in [-2.0, 2.0]:
+                        cusp = trimesh.creation.icosphere(radius=2.8, subdivisions=2)
+                        cusp.apply_scale([1.0, 0.6, 1.0])  # Flatten on Y (occlusal cusp)
+                        cusp.apply_translation([cx, 6.0, cz])
                         cusps.append(cusp)
-                
-                # Combine into a single organic mesh
-                molar = trimesh.util.concatenate([base] + cusps)
+
+                # 2 root stubs pointing downward (Y-)
+                for rx in [-2.5, 2.5]:
+                    root = trimesh.creation.cone(radius=2.2, height=6.0)
+                    root.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1,0,0]))  # Flip down
+                    root.apply_translation([rx, -1.5, 0.0])
+                    cusps.append(root)
+
+                # Combine crown + roots
+                molar = trimesh.util.concatenate([crown_body] + cusps)
                 molar.export(library_model_path)
+                print(f"Anatomical molar saved to {library_model_path}")
             except Exception as e:
                 print(f"Failed to generate molar: {e}")
 
