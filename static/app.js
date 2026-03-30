@@ -35,20 +35,29 @@ scene.add(rimLight);
 const stlLoader = new THREE.STLLoader();
 const plyLoader = new THREE.PLYLoader();
 
+// Materials - PLY files can have vertex colors
 const jawMaterial = new THREE.MeshPhongMaterial({ 
-    color: 0xeeeeee, 
-    specular: 0x111111, 
-    shininess: 30,
+    color: 0xcccccc,       // Pearl white bone color
+    vertexColors: false,    // Will switch to true for PLY
+    specular: 0x444444, 
+    shininess: 50,
+    flatShading: false
+}); 
+
+const jawMaterialPLY = new THREE.MeshPhongMaterial({ 
+    vertexColors: true,     // Use embedded PLY vertex colors
+    specular: 0x222222, 
+    shininess: 50,
     flatShading: false
 }); 
 
 const toothMaterial = new THREE.MeshPhongMaterial({ 
-    color: 0x3b82f6, 
-    emissive: 0x1d4ed8,
-    emissiveIntensity: 0.2,
+    color: 0x2563eb,
+    emissive: 0x1e40af,
+    emissiveIntensity: 0.3,
     transparent: true, 
-    opacity: 0.85,
-    shininess: 100
+    opacity: 0.80,
+    shininess: 120
 });
 
 let currentJawMesh = null;
@@ -99,14 +108,20 @@ scanUpload.addEventListener('change', (e) => {
         const reader = new FileReader();
         reader.onload = function(event) {
             const contents = event.target.result;
+            const ext = selectedFile.name.split('.').pop().toLowerCase();
             const loader = getLoaderForFile(selectedFile.name);
             const geometry = loader.parse(contents);
+            if (!geometry.attributes.normal) geometry.computeVertexNormals();
             
             if (currentJawMesh) scene.remove(currentJawMesh);
             if (currentPredictedMesh) scene.remove(currentPredictedMesh);
             currentPredictedMesh = null;
             
-            currentJawMesh = new THREE.Mesh(geometry, jawMaterial);
+            // Auto-select material: PLY with colors uses vertex colors, STL uses pearl white
+            const hasColors = geometry.attributes && geometry.attributes.color;
+            const mat = (ext === 'ply' && hasColors) ? jawMaterialPLY : jawMaterial;
+            
+            currentJawMesh = new THREE.Mesh(geometry, mat);
             currentJawMesh.rotation.x = -Math.PI / 2;
             scene.add(currentJawMesh);
             fitCameraToObject(camera, currentJawMesh);
