@@ -23,8 +23,9 @@ const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
 backLight.position.set(-50, -50, -50);
 scene.add(backLight);
 
-// STL Loader
-const loader = new THREE.STLLoader();
+// Loaders
+const stlLoader = new THREE.STLLoader();
+const plyLoader = new THREE.PLYLoader();
 
 const jawMaterial = new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.8, metalness: 0.05 }); // Bone-like
 const toothMaterial = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.3, metalness: 0.4, transparent: true, opacity: 0.95 }); // Professional AI Overlay
@@ -42,6 +43,12 @@ let selectedFile = null;
 function log(msg) {
     logs.innerHTML += `\n> ${msg}`;
     logs.scrollTop = logs.scrollHeight;
+}
+
+function getLoaderForFile(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    if (ext === 'ply') return plyLoader;
+    return stlLoader;
 }
 
 function fitCameraToObject(camera, object, offset = 1.5) {
@@ -71,7 +78,9 @@ scanUpload.addEventListener('change', (e) => {
         const reader = new FileReader();
         reader.onload = function(event) {
             const contents = event.target.result;
+            const loader = getLoaderForFile(selectedFile.name);
             const geometry = loader.parse(contents);
+            
             if (currentJawMesh) scene.remove(currentJawMesh);
             if (currentPredictedMesh) scene.remove(currentPredictedMesh);
             currentPredictedMesh = null;
@@ -115,9 +124,10 @@ predictBtn.addEventListener('click', async () => {
         if (data.status === "success" || data.predicted_tooth_url) {
             log(`Inference Complete. Processing output...`);
             let toothUrl = `${apiUrl}${data.predicted_tooth_url}`;
-            log(`Downloading STL from ${toothUrl}`);
+            log(`Downloading Predicted Tooth from ${toothUrl}`);
             
-            loader.load(toothUrl, (geometry) => {
+            // Predicted tooth is always STL currently
+            stlLoader.load(toothUrl, (geometry) => {
                 if (currentPredictedMesh) scene.remove(currentPredictedMesh);
                 currentPredictedMesh = new THREE.Mesh(geometry, toothMaterial);
                 currentPredictedMesh.rotation.x = -Math.PI / 2;
