@@ -23,20 +23,21 @@ class TeethPositionPredictor:
 
         # Auto-download professional molar for library if missing
         if not os.path.exists(library_model_path):
-            print("Procedurally generating a realistic clinical Molar on-the-fly...")
+            print("Procedurally generating an ANATOMICAL molar crown on-the-fly...")
             try:
                 import trimesh
-                base = trimesh.creation.box(extents=(10.0, 8.0, 10.0))
+                # Create a more organic molar shape: rounded box with 4 anatomically positioned cusps
+                base = trimesh.creation.box(extents=(9.0, 7.0, 9.0))
                 cusps = []
-                for cx in [-3, 3]:
-                    for cz in [-3, 3]:
-                        cusp = trimesh.creation.icosphere(radius=3.0, subdivisions=2)
-                        cusp.apply_translation([cx, 4.0, cz])
+                # Positioning 4 rounded cusps (mesio-buccal, disto-buccal, etc.)
+                for cx in [-2.6, 2.6]:
+                    for cz in [-2.6, 2.6]:
+                        cusp = trimesh.creation.icosphere(radius=3.5, subdivisions=2)
+                        cusp.apply_scale([1.0, 0.7, 1.0]) # Slightly flatten for occlusal table
+                        cusp.apply_translation([cx, 3.8, cz])
                         cusps.append(cusp)
-                root = trimesh.creation.cone(radius=4.5, height=9.0)
-                root.apply_translation([0, -8.5, 0])
-                root.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1,0,0]))
-                cusps.append(root)
+                
+                # Combine into a single organic mesh
                 molar = trimesh.util.concatenate([base] + cusps)
                 molar.export(library_model_path)
             except Exception as e:
@@ -71,6 +72,10 @@ class TeethPositionPredictor:
         
         jaw_mesh.compute_vertex_normals()
         
+        # Calculate adaptive scale (a molar is roughly 1/15th of a medical jaw width)
+        jaw_extent = jaw_mesh.get_axis_aligned_bounding_box().get_extent()
+        avg_jaw_dim = np.mean(jaw_extent)
+        
         if self.model:
             # 1. REAL ML PREDICTION
             pcd = jaw_mesh.sample_points_uniformly(number_of_points=2048)
@@ -100,13 +105,11 @@ class TeethPositionPredictor:
         tooth_center = predicted_tooth.get_center()
         predicted_tooth.translate(-tooth_center)
         
-        # Professional Scaling for Dental Crowns (approx 10-12mm for molars)
-        # We normalize the library tooth to a realistic 10.0mm width
-        tooth_bbox = predicted_tooth.get_axis_aligned_bounding_box()
-        tooth_extent = tooth_bbox.get_extent()
+        # Professional Adaptive Scaling (approx 1/15th of jaw width)
+        tooth_extent = predicted_tooth.get_axis_aligned_bounding_box().get_extent()
         current_max_dim = max(tooth_extent)
-        scale_to_mm = 10.0 / current_max_dim
-        predicted_tooth.scale(scale_to_mm, center=(0,0,0))
+        scale_to_jaw = (avg_jaw_dim / 15.0) / current_max_dim
+        predicted_tooth.scale(scale_to_jaw, center=(0,0,0))
 
         # IMPORTANT: Position prediction - move tooth to predicted location
         predicted_tooth.translate(initial_translation)
