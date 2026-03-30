@@ -52,6 +52,8 @@ pip install fastapi uvicorn python-multipart supabase python-dotenv
 # Re-install other potential requirements without relying on full requirements.txt which might fetch GPU torch
 pip install trimesh open3d numpy pydantic
 
+$swapCode
+
 echo "[5/6] Creating Configuration Files..."
 cat <<EOF > .env
 SUPABASE_URL=https://<ВАШ_ПРОЕКТ>.supabase.co
