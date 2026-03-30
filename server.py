@@ -38,8 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# For UI backwards compatibility, we can still serve the frontend locally
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# Moved mount to bottom for route precedence
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -111,6 +110,9 @@ async def download_file(filename: str):
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type="application/octet-stream", filename=filename)
     return JSONResponse(status_code=404, content={"error": "File not found locally."})
+
+# For UI backwards compatibility, serve the SPA frontend from the root
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
