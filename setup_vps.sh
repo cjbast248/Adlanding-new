@@ -21,7 +21,7 @@ SUPABASE_TOKEN="sbp_7d73fbd608cb164949347b346335683ff7e0f5fe"
 
 echo "[1/6] Updating system and installing dependencies..."
 apt-get update -y
-apt-get install -y python3 python3-pip python3-venv git curl ufw
+apt-get install -y libgl1 libglib2.0-0 python3 python3-pip python3-venv git curl ufw
 
 echo "[2/6] Cloning the repository (Adlanding-new)..."
 if [ -d "$PROJECT_DIR" ]; then
