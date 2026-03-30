@@ -72,9 +72,12 @@ class TeethPositionPredictor:
         
         jaw_mesh.compute_vertex_normals()
         
-        # Calculate adaptive scale (a molar is roughly 1/15th of a medical jaw width)
+        # Calculate adaptive scale
+        # A human molar is ~10-12mm. Jaw average width ~80-100mm.
+        # Use 1/7 ratio for a clearly visible clinical crown
         jaw_extent = jaw_mesh.get_axis_aligned_bounding_box().get_extent()
-        avg_jaw_dim = np.mean(jaw_extent)
+        avg_jaw_dim = np.mean(jaw_extent[:2])  # XY plane, ignore height
+        tooth_target_size_mm = max(avg_jaw_dim / 7.0, 8.0)  # Minimum 8mm crown
         
         if self.model:
             # 1. REAL ML PREDICTION
@@ -92,12 +95,18 @@ class TeethPositionPredictor:
             initial_translation = translation
             model_used_name = "PointNet3D (Clinical Weights)"
         else:
-            # 2. HEURISTIC FALLBACK
+            # 2. HEURISTIC FALLBACK - place in molar region of tooth row
             jaw_center = jaw_mesh.get_center()
             bbox = jaw_mesh.get_axis_aligned_bounding_box()
-            bounds = bbox.get_extent()
-            # Position it roughly in the molar region of a standard scan
-            initial_translation = jaw_center + np.array([0, bounds[1]*0.25, bounds[2]*0.15]) 
+            min_b = bbox.min_bound
+            max_b = bbox.max_bound
+            # Target the posterior (back) tooth area, not the ramus/condyle
+            # Molar region is roughly: 30% from the front on X, at tooth row height
+            initial_translation = np.array([
+                jaw_center[0] + (max_b[0] - jaw_center[0]) * 0.4,  # Right molar side
+                jaw_center[1],
+                min_b[2] + (max_b[2] - min_b[2]) * 0.65,  # Upper tooth row level
+            ])
             model_used_name = "PointNet3D (Heuristic Stub)"
         
         predicted_tooth = copy.deepcopy(self.library_tooth)
@@ -105,10 +114,10 @@ class TeethPositionPredictor:
         tooth_center = predicted_tooth.get_center()
         predicted_tooth.translate(-tooth_center)
         
-        # Professional Adaptive Scaling (approx 1/15th of jaw width)
+        # Professional Adaptive Scaling: target visible molar size (min 8mm crown)
         tooth_extent = predicted_tooth.get_axis_aligned_bounding_box().get_extent()
         current_max_dim = max(tooth_extent)
-        scale_to_jaw = (avg_jaw_dim / 15.0) / current_max_dim
+        scale_to_jaw = tooth_target_size_mm / current_max_dim
         predicted_tooth.scale(scale_to_jaw, center=(0,0,0))
 
         # IMPORTANT: Position prediction - move tooth to predicted location
