@@ -168,11 +168,25 @@ predictBtn.addEventListener('click', async () => {
                 currentPredictedMesh = new THREE.Mesh(geometry, toothMaterial);
                 currentPredictedMesh.rotation.x = -Math.PI / 2;
                 scene.add(currentPredictedMesh);
-                const group = new THREE.Group();
-                group.add(currentJawMesh);
-                group.add(currentPredictedMesh);
-                fitCameraToObject(camera, group);
-                log("Prediction successfully aligned.");
+                
+                // CRITICAL FIX: Do NOT use group.add() — it removes meshes from scene!
+                // Instead, compute a combined bounding box from both objects still IN scene
+                const box = new THREE.Box3();
+                if (currentJawMesh) box.expandByObject(currentJawMesh);
+                box.expandByObject(currentPredictedMesh);
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const dist = Math.abs(maxDim * 1.5);
+                camera.position.set(center.x, center.y - dist * 0.5, center.z + dist);
+                camera.far = dist * 10;
+                camera.updateProjectionMatrix();
+                controls.target.copy(center);
+                controls.update();
+                
+                log("Prediction successfully aligned. Both jaw + tooth visible.");
             });
         } else {
             log(`Error: ${data.error || 'Unknown API failure'}`);
