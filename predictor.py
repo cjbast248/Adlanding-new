@@ -182,9 +182,6 @@ class TeethPositionPredictor:
 
         # 5. Check each template position for tooth presence
         window_rad = np.radians(7.5)
-        wide_rad   = np.radians(13.0)
-        dense_count        = np.percentile(bin_cnt[bin_cnt > 0], 75) if np.any(bin_cnt > 0) else 1
-        presence_threshold = dense_count * 0.40
 
         results = []
         for (offset_deg, tooth_kind, side) in ARCH_TEMPLATE:
