@@ -195,22 +195,32 @@ class TeethPositionPredictor:
             offset_rad = np.radians(offset_deg) * side
             target_ang = front_ang + offset_rad
 
+            # Find points in this angular sector
             ang_diff = np.abs(((angles - target_ang + np.pi) % (2 * np.pi)) - np.pi)
-            cnt = np.sum(ang_diff < window_rad)
+            mask_near = ang_diff < window_rad
+            
+            if np.sum(mask_near) < 10:
+                continue # No bone data here at all
 
-            if cnt < presence_threshold:
-                # Tooth is MISSING — find position from nearby bone surface
-                mask_wide = ang_diff < wide_rad
-                n_wide    = np.sum(mask_wide)
-
-                if n_wide >= 5:
-                    sec   = alv[mask_wide]
-                    r_sec = radii[mask_wide]
-                    outer = sec[r_sec >= np.percentile(r_sec, 60)]
-                    pos3d = np.mean(outer if len(outer) > 0 else sec, axis=0)
+            sector_points = alv[mask_near]
+            z_near = sector_points[:, 2]
+            
+            z_mean_sector = np.mean(z_near)
+            top_10_percent = np.percentile(z_near, 90)
+            crown_tip_z = np.mean(z_near[z_near >= top_10_percent])
+            
+            # If the peak is significantly higher than the mean, a tooth is PRESENT.
+            # Otherwise, the bone is flat = tooth is MISSING.
+            if crown_tip_z < z_mean_sector + 1.5:
+                # Tooth is MISSING — find coordinates on the bone surface
+                r_sec = radii[mask_near]
+                # Anchor crown to the buccal/labial side (outer 40% of the ridge)
+                outer_mask = r_sec >= np.percentile(r_sec, 60)
+                if np.sum(outer_mask) > 0:
+                    pos3d = np.mean(sector_points[outer_mask], axis=0)
                 else:
-                    continue  # No nearby bone → skip (avoids floating teeth)
-
+                    pos3d = np.mean(sector_points, axis=0)
+                
                 pos3d[2] = np.clip(pos3d[2], z_min, z_max)
                 results.append((pos3d.copy(), tooth_kind))
 
