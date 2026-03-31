@@ -142,31 +142,27 @@ class TeethPositionPredictor:
         if len(alv) < 200:
             return []
 
-        # 2. Polar projection around arch centroid
-        xy          = alv[:, :2]
-        arch_center = np.median(xy, axis=0)
-        dx = xy[:, 0] - arch_center[0]
-        dy = xy[:, 1] - arch_center[1]
-        angles = np.arctan2(dy, dx)
-        radii  = np.sqrt(dx**2 + dy**2)
-        arch_radius = np.median(radii)
-        alv_z_mean  = np.mean(alv[:, 2])
-
-        # 3. Find the arch FRONT direction
-        # Key insight: The dental arch is U-shaped, opening toward the BACK.
-        # The BACK = lowest density angular sector (the open end of the U).
-        # FRONT = 180° from back (the closed tip = symphysis/chin).
-        n_scan    = 36
-        scan_bins = np.linspace(-np.pi, np.pi, n_scan + 1)
-        bin_cnt   = np.zeros(n_scan)
-        for i in range(n_scan):
-            m = (angles >= scan_bins[i]) & (angles < scan_bins[i+1])
-            bin_cnt[i] = np.sum(m)
-
-        # Back = minimum count sector (open end of U)
-        back_bin  = int(np.argmin(bin_cnt))
-        back_ang  = (scan_bins[back_bin] + scan_bins[back_bin + 1]) / 2
-        front_ang = back_ang + np.pi  # Front is exactly opposite
+        # 2. Arch alignment using PCA (Symmetry Axis)
+        xy = alv[:, :2]
+        center = np.mean(xy, axis=0)
+        u, s, vh = np.linalg.svd(xy - center)
+        # Primary axis (pc1) is along the length of the mandible (back to front)
+        pc1 = vh[0]
+        pc2 = vh[1]
+        
+        # Ensure pc1 points to the FRONT (higher point density)
+        proj = (xy - center) @ pc1
+        if np.sum(proj > 0) < np.sum(proj < 0):
+            pc1 = -pc1
+            
+        front_ang = np.arctan2(pc1[1], pc1[0])
+        arch_center = center - pc1 * (np.max(proj) * 0.1) # Shift center back slightly
+        
+        # Recalculate polar coordinates for template matching
+        dx_new = xy[:, 0] - arch_center[0]
+        dy_new = xy[:, 1] - arch_center[1]
+        angles = np.arctan2(dy_new, dx_new)
+        radii  = np.sqrt(dx_new**2 + dy_new**2)
 
         # 4. Standard dental arch template (symmetric, 8 teeth per side)
         ARCH_TEMPLATE = [
