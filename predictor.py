@@ -251,23 +251,64 @@ class TeethPositionPredictor:
         gap_results  = self._detect_arch_gaps(jaw_mesh)
         model_used   = "Geometric Arch Detector"
 
-        # ── 2. PointNet fallback if no geometric gaps found ───────────────
+        # ── 2. PointNet iterative multi-tooth prediction ──────────────────
         if not gap_results:
-            model_used = "PointNet3D / Heuristic (fallback)"
+            model_used = "PointNet3D Iterative"
             if self.model:
-                pcd = jaw_mesh.sample_points_uniformly(number_of_points=2048)
-                pts = np.asarray(pcd.points)
-                cen = np.mean(pts, axis=0);  pts -= cen
-                t   = torch.tensor(pts, dtype=torch.float32).unsqueeze(0).to(self.device)
-                with torch.no_grad():
-                    out = self.model(t).cpu().numpy()[0]
-                pos = out[:3] + cen
+                pcd      = jaw_mesh.sample_points_uniformly(number_of_points=8000)
+                all_pts  = np.asarray(pcd.points).copy()
+                MASK_R   = 9.0    # mm — radius to mask after each prediction
+                MAX_ITER = 8      # max number of teeth to find
+                MIN_DIST = 6.0    # mm — ignore if too close to previous prediction
+
+                for iteration in range(MAX_ITER):
+                    if len(all_pts) < 500:
+                        break
+
+                    # Sample fixed size for PointNet
+                    if len(all_pts) >= 2048:
+                        idx = np.random.choice(len(all_pts), 2048, replace=False)
+                    else:
+                        idx = np.random.choice(len(all_pts), 2048, replace=True)
+                    pts = all_pts[idx].copy()
+                    cen = np.mean(pts, axis=0);  pts -= cen
+
+                    t = torch.tensor(pts, dtype=torch.float32).unsqueeze(0).to(self.device)
+                    with torch.no_grad():
+                        out = self.model(t).cpu().numpy()[0]
+                    pos = out[:3] + cen
+
+                    # Skip if too close to an already-found tooth
+                    too_close = any(
+                        np.linalg.norm(pos - prev[0]) < MIN_DIST
+                        for prev in gap_results
+                    )
+                    if too_close:
+                        break
+
+                    # Clamp to jaw bounding box
+                    bb  = jaw_mesh.get_axis_aligned_bounding_box()
+                    pos = np.clip(pos, bb.min_bound, bb.max_bound)
+
+                    # Classify tooth type by angular position from jaw center
+                    jaw_c  = np.array(jaw_mesh.get_center())
+                    delta  = pos[:2] - jaw_c[:2]
+                    ang    = abs(np.degrees(np.arctan2(delta[1], delta[0])))
+                    tooth_kind = self._classify_tooth(ang % 90)
+                    gap_results.append((pos, tooth_kind))
+
+                    # Mask the predicted region so next iteration finds a different tooth
+                    dists   = np.linalg.norm(all_pts - pos, axis=1)
+                    all_pts = all_pts[dists > MASK_R]
+
+                if not gap_results:
+                    gap_results = [(jaw_mesh.get_center(), "molar")]
             else:
                 c   = jaw_mesh.get_center()
                 bb  = jaw_mesh.get_axis_aligned_bounding_box()
                 mn, mx = bb.min_bound, bb.max_bound
-                pos = np.array([c[0], c[1], mn[2] + (mx[2]-mn[2]) * 0.70])
-            gap_results = [(pos, "molar")]
+                pos = np.array([c[0], c[1], mn[2] + (mx[2] - mn[2]) * 0.70])
+                gap_results = [(pos, "molar")]
 
         # ── 3. Build a crown for each gap ────────────────────────────────
         all_teeth = []
